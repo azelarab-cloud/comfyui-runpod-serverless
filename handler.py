@@ -9,6 +9,23 @@ import base64
 
 # Boot up the ComfyUI server in the background
 def start_comfyui():
+    print("Configuring ComfyUI to read from the Network Volume...")
+    
+    # This tells ComfyUI exactly where your comfy_persist files are hiding
+    yaml_content = """
+runpod_volume:
+    base_path: /workspace/network_volume/comfy_persist/models
+    checkpoints: checkpoints
+    clip: text_encoders
+    text_encoders: text_encoders
+    unet: diffusion_models
+    diffusion_models: diffusion_models
+    vae: vae
+    loras: loras
+"""
+    with open("extra_model_paths.yaml", "w") as f:
+        f.write(yaml_content)
+        
     print("Starting ComfyUI Engine...")
     subprocess.Popen(["python", "main.py", "--listen", "127.0.0.1", "--port", "8188"])
     
@@ -21,7 +38,7 @@ def start_comfyui():
                 break
         except requests.exceptions.ConnectionError:
             time.sleep(1)
-
+            
 # Send the n8n workflow JSON to ComfyUI
 def queue_prompt(prompt_workflow):
     p = {"prompt": prompt_workflow}
