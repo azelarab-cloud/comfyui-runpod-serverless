@@ -4,7 +4,7 @@ FROM pytorch/pytorch:2.2.1-cuda12.1-cudnn8-runtime
 # Set working directory
 WORKDIR /workspace
 
-# Install git and clean up to save space
+# Install system dependencies
 RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
 
 # Clone ComfyUI
@@ -13,11 +13,14 @@ RUN git clone https://github.com/comfyanonymous/ComfyUI.git
 # Set working directory to ComfyUI
 WORKDIR /workspace/ComfyUI
 
-# Install ComfyUI dependencies and RunPod
+# Install core dependencies, runpod, and the GGUF requirements
 RUN pip install -r requirements.txt
-RUN pip install runpod
+RUN pip install runpod gguf protobuf
 
-# Copy your serverless handler script
+# Clone the custom GGUF node permanently into the image
+RUN cd custom_nodes && git clone https://github.com/city96/ComfyUI-GGUF.git
+
+# Copy your robust serverless handler script
 COPY handler.py .
 
 # Start the RunPod serverless worker
