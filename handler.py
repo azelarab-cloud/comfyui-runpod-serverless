@@ -1,20 +1,19 @@
 import runpod
 import subprocess
-import requests
 import time
-import urllib.request
+import requests
 import json
+import urllib.request
 import os
 import base64
 
-# Boot up the ComfyUI server in the background
 def start_comfyui():
     print("Configuring ComfyUI to read from the Network Volume...")
     
-    # This tells ComfyUI exactly where your comfy_persist files are hiding
+    # This tells ComfyUI exactly where your comfy_persist files are hiding on the RunPod volume
     yaml_content = """
 runpod_volume:
-    base_path: /workspace/network_volume/comfy_persist/models
+    base_path: /runpod-volume/comfy_persist/models
     checkpoints: checkpoints
     clip: text_encoders
     text_encoders: text_encoders
@@ -38,58 +37,63 @@ runpod_volume:
                 break
         except requests.exceptions.ConnectionError:
             time.sleep(1)
-            
-# Send the n8n workflow JSON to ComfyUI
+
 def queue_prompt(prompt_workflow):
+    """Sends the workflow to ComfyUI for generation."""
     p = {"prompt": prompt_workflow}
     data = json.dumps(p).encode('utf-8')
     req = urllib.request.Request("http://127.0.0.1:8188/prompt", data=data)
+    req.add_header('Content-Type', 'application/json')
     response = urllib.request.urlopen(req)
     return json.loads(response.read())
 
-# Check if the image is done generating
 def get_history(prompt_id):
+    """Checks the status of the job inside ComfyUI."""
     with urllib.request.urlopen(f"http://127.0.0.1:8188/history/{prompt_id}") as response:
         return json.loads(response.read())
 
-# The main RunPod Serverless execution block
 def handler(job):
-    job_input = job['input']
-    workflow = job_input.get('workflow') 
+    """The main RunPod serverless handler."""
+    workflow = job['input']['workflow']
     
-    if not workflow:
-        return {"error": "No workflow provided by n8n."}
-
-    # 1. Submit the job
+    print("Received job, queuing prompt...")
     prompt_response = queue_prompt(workflow)
     prompt_id = prompt_response['prompt_id']
     
-    # 2. Wait for completion
+    print(f"Prompt queued. ID: {prompt_id}")
+    
+    # Poll ComfyUI until the image generation is complete
     while True:
         history = get_history(prompt_id)
         if prompt_id in history:
-            break
-        time.sleep(1)
+            print("Generation complete!")
+            
+            # Extract the generated image filenames
+            outputs = history[prompt_id]['outputs']
+            images = []
+            
+            for node_id in outputs:
+                if 'images' in outputs[node_id]:
+                    for image in outputs[node_id]['images']:
+                        # ComfyUI typically saves outputs to the /workspace/ComfyUI/output folder
+                        image_path = os.path.join("output", image['filename'])
+                        
+                        # Convert the image to base64 so it can be sent back to your local computer
+                        with open(image_path, "rb") as img_file:
+                            encoded_string = base64.b64encode(img_file.read()).decode('utf-8')
+                            images.append({
+                                "filename": image['filename'],
+                                "image_base64": encoded_string
+                            })
+            
+            return {"status": "success", "images": images}
         
-    # 3. Locate the generated image in the output folder
-    output_dir = "./output"
-    files = [os.path.join(output_dir, f) for f in os.listdir(output_dir) if f.endswith('.png')]
-    if not files:
-         return {"error": "Generation failed. No image found."}
-         
-    latest_file = max(files, key=os.path.getctime)
-    
-    # 4. Convert the image to Base64 text to send back over HTTP
-    with open(latest_file, "rb") as image_file:
-        encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
-        
-    # Clean up the output folder so the serverless container doesn't get bloated
-    os.remove(latest_file)
-        
-    return {"image_base64": encoded_string}
+        # Wait 2 seconds before checking again
+        time.sleep(2)
 
-# Initialize server immediately when the container wakes up
+# 1. Start the ComfyUI engine in the background
 start_comfyui()
 
-# Start listening for n8n API calls
+# 2. Start the RunPod worker and wait for API requests
+print("Starting RunPod Serverless Worker...")
 runpod.serverless.start({"handler": handler})
