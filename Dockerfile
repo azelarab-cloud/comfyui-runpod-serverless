@@ -15,7 +15,7 @@ WORKDIR /workspace/ComfyUI
 
 # Install core dependencies, runpod, and the GGUF requirements
 RUN pip install -r requirements.txt
-RUN pip install runpod gguf protobuf
+RUN pip install runpod gguf protobuf requests kornia opencv-python-headless av
 
 # Clone the custom GGUF node permanently into the image
 RUN cd custom_nodes && git clone https://github.com/city96/ComfyUI-GGUF.git
